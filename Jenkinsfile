@@ -2,10 +2,14 @@ pipeline {
   agent any
 
   environment {
-    IMAGE_NAME = 'myapp'
-    IMAGE_TAG  = "${env.GIT_COMMIT.take(7)}"
-    APP_PORT   = '8000'
-    ENV_FILE   = '/opt/myapp/.env'      // optional; used only if it exists
+    // Change this to whatever repo/namespace you want, e.g.
+    //   'cloudseclab/myapp'  -> docker.io/cloudseclab/myapp
+    //   '<acct>.dkr.ecr.<region>.amazonaws.com/myapp' for ECR
+    IMAGE_NAME     = 'cloudseclab/myapp'
+    CONTAINER_NAME = 'myapp'            // docker container name (no slashes allowed)
+    IMAGE_TAG      = "${env.GIT_COMMIT.take(7)}"
+    APP_PORT       = '8000'
+    ENV_FILE       = '/opt/myapp/.env'  // optional; used only if it exists
   }
 
   options {
@@ -40,7 +44,7 @@ pipeline {
         TENABLE_API_URL              = 'https://app.tenable.com/'
         TENABLE_CODE_BRANCH          = "${env.CHANGE_BRANCH ?: env.GIT_BRANCH}"
         TENABLE_CODE_COMMIT_HASH     = "${env.GIT_COMMIT}"
-        TENABLE_CODE_COMMIT_USER     = "${env.CHANGE_AUTHOR}"
+        TENABLE_CODE_COMMIT_USER     = "${env.CHANGE_AUTHOR ?: sh(returnStdout: true, script: 'git log -1 --pretty=format:%an').trim()}"
         TENABLE_PIPELINE_RUN_ID      = "${env.BUILD_ID}"
         TENABLE_PIPELINE_RUN_TRIGGER = "${currentBuild.getBuildCauses()[0].shortDescription}"
         TENABLE_PIPELINE_RUN_URL     = "${env.BUILD_URL}"
@@ -73,8 +77,8 @@ pipeline {
           ENV_ARG=""
           [ -f "${ENV_FILE}" ] && ENV_ARG="--env-file ${ENV_FILE}"
 
-          docker rm -f ${IMAGE_NAME} 2>/dev/null || true
-          docker run -d --name ${IMAGE_NAME} --restart unless-stopped \
+          docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
+          docker run -d --name ${CONTAINER_NAME} --restart unless-stopped \
             -p ${APP_PORT}:8000 $ENV_ARG ${IMAGE_NAME}:current
         '''
       }
@@ -99,10 +103,10 @@ pipeline {
         # roll back to the previous image if one exists
         if docker image inspect ${IMAGE_NAME}:previous >/dev/null 2>&1; then
           echo "Rolling back to previous image"
-          docker rm -f ${IMAGE_NAME} 2>/dev/null || true
+          docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
           ENV_ARG=""
           [ -f "${ENV_FILE}" ] && ENV_ARG="--env-file ${ENV_FILE}"
-          docker run -d --name ${IMAGE_NAME} --restart unless-stopped \
+          docker run -d --name ${CONTAINER_NAME} --restart unless-stopped \
             -p ${APP_PORT}:8000 $ENV_ARG ${IMAGE_NAME}:previous || true
         fi
       '''
