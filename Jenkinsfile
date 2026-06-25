@@ -34,10 +34,32 @@ pipeline {
       }
     }
 
-    stage('Scan Image') {
+    stage('Scan container image with Tenable Cloud Security') {
+      environment {
+        TENABLE_API_TOKEN            = credentials('tenable-api-token')
+        TENABLE_API_URL              = 'https://app.tenable.com/'
+        TENABLE_CODE_BRANCH          = "${env.CHANGE_BRANCH ?: env.GIT_BRANCH}"
+        TENABLE_CODE_COMMIT_HASH     = "${env.GIT_COMMIT}"
+        TENABLE_CODE_COMMIT_USER     = "${env.CHANGE_AUTHOR}"
+        TENABLE_PIPELINE_RUN_ID      = "${env.BUILD_ID}"
+        TENABLE_PIPELINE_RUN_TRIGGER = "${currentBuild.getBuildCauses()[0].shortDescription}"
+        TENABLE_PIPELINE_RUN_URL     = "${env.BUILD_URL}"
+      }
       steps {
-        // Fail on HIGH/CRITICAL once your baseline is clean (drop the `|| true`).
-        sh 'command -v trivy >/dev/null 2>&1 && trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${IMAGE_TAG} || echo "trivy not installed, skipping scan"'
+        script {
+          // Mount the host Docker socket so the scanner can see the locally built image.
+          docker.image('tenable/cloud-security-scanner:latest').inside(
+              "--entrypoint='' -u 0 --pull=always -v /var/run/docker.sock:/var/run/docker.sock") {
+            sh """
+              tenable container-image scan \
+                --name ${IMAGE_NAME}:${IMAGE_TAG} \
+                --no-color \
+                --output-file-formats JUnit \
+                --output-path .
+            """
+            junit skipPublishingChecks: true, testResults: 'results.junit.xml'
+          }
+        }
       }
     }
 
